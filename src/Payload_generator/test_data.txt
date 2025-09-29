@@ -1,0 +1,26 @@
+/*Motor draait omhoog indien de Toggle knop OF Up WORD getoggled en dit voor 15Seconden:
+TP1_15S(IN:= (Toggle OR Up) AND NOT bPauzeRolluik, PT:= T#15S, Q=> Q_MoveU); 
+//Motor draait omlaag indien de TOggle knop of Up word getoggled en dit voor 15Seconden:
+TP2_15S(IN:= (Toggle OR Down) AND NOT bPauzeRolluik, PT:= T#15S, Q=> Q_MoveD); 
+//Indien toggle 500ms ingedrutk word zal bStopRolluik getriggerd worden.
+Toggle500ms(bSwitch:= Toggle, tSwitchTime:= T#0.5S, bLongClick => bPauzeRolluik);
+
+//Up Functie om rolluik naar boven te laten gaan:
+IF Up AND NOT Down THEN
+	Q_MoveU	:= TRUE;
+	Q_MoveD	:= FALSE;
+	
+//Down functie om ruilluik naar beneden te laten gaan:
+ELSIF Down AND NOT Up THEN
+	Q_MoveD	:= TRUE;
+	Q_MoveU	:= FALSE;
+END_IF
+
+//Stop ruilluik wanneer loslaten:
+IF bPauzeRolluik THEN
+	Down:= TRUE;
+	Up	:= FALSE;
+ELSIF bPauzeRolluik AND NOT Toggle THEN
+	Down:= FALSE;
+	Up	:= FALSE;
+END_IF

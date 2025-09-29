@@ -1,0 +1,466 @@
+Demo Application code flow: (Check mmWave sdk 3.6 page 50 - ... for a typical user application flow)
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< MSS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+1.) mmwave.h: (Main mmwave header) /////////////////////////////////////////////////////////////////////////////////////////////////////////////
+************************************************************************ Types *****************************************************************
+1. typedefs of void*:                   MMWave_ProfileHandle, MMWave_ChirpHandle, MMWave_BpmChirpHandle
+2. mmWave config structs:               MMWave_CtrlCfg, MMWave_ChirpCalibrationCfg, MMWave_FrameCfg, ...
+3. mmWave config enums:                 MMWave_ErrorLevel_e, MMWave_DFEDataOutputMode_e, MMWave_Domain_e, ...
+4. mmWave callback function prototypes: void (*MMWave_startFxn)(MMWave_CalibrationCfg* ptrCalibrationCfg), ...
+************************************************************************ Types *****************************************************************
+
+****************************************************************** mmWave Exported API *********************************************************
+1. MMWave_init(), MMWave_open(), MMWave_config(), MMWave_start(), ...
+****************************************************************** mmWave Exported API *********************************************************
+
+************************************************************** Configuration Management API ****************************************************
+1. MMWave_addChirp(), MMWave_getChirpCfg(), MMWave_addProfile(), MMWave_getNumChirps(), MMWave_flushCfg(), ...
+************************************************************** Configuration Management API ****************************************************
+
+***************************************************************** Error management API *********************************************************
+1. mmWave error MACROS
+2. MMWave_decodeError():
+- Decode error values that are returned (via argument) from MMW SDK function calls.
+***************************************************************** Error management API *********************************************************
+mmwave.h: (Main mmwave header) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+2.) mmw_config.h: (mmwave demo config header) //////////////////////////////////////////////////////////////////////////////////////////////////
+This is the header file that describes configurations for the Millimeter Wave Demo (Only structs are declared in this header):
+- typedef struct MmwDemo_GuiMonSel_t MmwDemo_GuiMonSel:                       Control which info needs to be send to the demo visualizer.
+- typedef struct MmwDemo_LvdsStreamCfg_t MmwDemo_LvdsStreamCfg:               LVDS streaming configuration
+- typedef struct MmwDemo_platformCfg_t MmwDemo_platformCfg:                   Sensorstatus gpio, system clock frequency, uart baudrates.
+- typedef struct MmwDemo_Cfg_t MmwDemo_Cfg:                                   Main demo confif struct
+- typedef struct MmwDemo_DPC_ObjDet_CommonCfg_t MmwDemo_DPC_ObjDet_CommonCfg: Data path DPC common configuration.
+- typedef struct MmwDemo_DPC_ObjDet_DynCfg_t MmwDemo_DPC_ObjDet_DynCfg:       Data path DPC dynamic configuration
+mmw_config.h: (mmwave demo config header) //////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+3.) mmw_mss.h: (Master Sub System) /////////////////////////////////////////////////////////////////////////////////////////////////////////////
+*********************************************************************** Structs ****************************************************************
+1. typedef struct MmwDemo_MSS_MCB_t MmwDemo_MSS_MCB: (mss_main.c global variable)
+- The struct type that is used to hold all the configuration settings and more that represents the state of the demo application.
+- All other structs that MmwDemo_MSS_MCB relies on are found in this header.
+*********************************************************************** Structs ****************************************************************
+
+********************************************************************** Functions ***************************************************************
+These functions are defined in mss_main.c
+1. Functions to handle the actions need to move the sensor state: 
+- MmwDemo_openSensor(), MmwDemo_configSensor(), MmwDemo_startSensor(), MmwDemo_stopSensor()
+2. Functions to manage the dynamic configuration: 
+- MmwDemo_isAllCfgInPendingState(), MmwDemo_isAllCfgInNonPendingState(), MmwDemo_resetStaticCfgPendingState(), MmwDemo_CfgUpdate()
+********************************************************************** Functions ***************************************************************
+
+************************************************************************ Debug *****************************************************************
+1. MACRO MmwDemo_debugAssert(expression):
+- Uses DebugP_assert() (Operating System Abstraction Layer (OSAL) DebugP.h)
+************************************************************************ Debug *****************************************************************
+mmw_mss.h: (Master Sub System) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+4.) mss_main.c: (Master Sub System) ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+*********************************************************************** global *****************************************************************
+MmwDemo_MSS_MCB gMmwMssMCB: 
+- Global variable to hold the configuration state of the demo application: (mmw_mss.h: MmwDemo_MSS_MCB)
+- Holds various handle types including TI RTOS handle types, error info, sensor state, temp stats, lvds stream, CQ monitor configuration, ... 
+*********************************************************************** global *****************************************************************
+
+********************************************************************** int main() **************************************************************
+1. ESM_init(): 
+- Init the Error Signaling Module.
+2. SOC_init(): 
+- Init the MSS SOC module.
+3. SOC_waitBSSPowerUp(): 
+- Check if the BSS is powered up.
+4. SOC_isSecureDevice(): 
+- Check if the used device is a secured device.
+5. Task_Create(MmwDemo_initTask): 
+- Create the initialization TI RTOS task.
+6. BIOS_start(): 
+- Start the TI RTOS scheduler.
+********************************************************************** int main() **************************************************************
+
+*************************************************************** void MmwDemo_initTask() ********************************************************
+*** Initialize the mmWave SDK components: ***
+1. UART_init(): 
+- Init the UART to be able to use related API calls.
+2. GPIO_init(): 
+- Init the GPIO to be able to use related API calls.
+3. Mailbox_init(MAILBOX_TYPE_MSS): 
+- Init the Mailbox module. It must be called only once per local endpoint. (also for DSS)
+- Also needed to be able to call related API calls.
+4. MmwDemo_edmaInit(): 
+- Init the EDMA instance. (EDMA_init(MMW_LVDS_STREAM_EDMA_INSTANCE))
+5. MmwDemo_edmaOpen(): 
+- Open the EDMA instance. (EDMA_open(MMW_LVDS_STREAM_EDMA_INSTANCE, &errCode, &edmaInstanceInfo))
+- Set EDMA error callbacks. (MmwDemo_EDMA_errorCallbackFxn() and MmwDemo_EDMA_transferControllerErrorCallbackFxn())
+- Configure EDMA error monitoring. (EDMA_configErrorMonitoring())
+6. MmwDemo_LVDSStreamInit(): (mmw_lvds_stream.c)
+- Init and configure the CBUFF Driver. (CBUFF_init())
+- Allocate memory for the user data header. (Memory_alloc())
+- Init the HighSpeedInterface (HSI) header. (HSIHeader_init())
+- Init/configure the LVDS streaming EDMA resources.(MmwDemo_LVDSStream_EDMAInit())
+- Init lvds hw/sw frame done semaphores. (Semaphore_create())
+7. Init Chirp Profiles to a default of a non valid value. 
+- gMmwMssMCB.cqSatMonCfg and gMmwMssMCB.cqSigImgMonCfg
+8. MmwDemo_platformInit(): (Specific platform configuration)
+- Init UART pins, QSPI Flash pins (device flash memory), GPIO pins (GPIO2 connected to the onboard user LED)
+- System clock frequency
+- UART baudrates
+
+*** Open the mmWave SDK components: ***
+9. Open both the UART for the CLI communication / user application and the UART for data transfer:
+- UART_Params_init()
+- UART_open()
+10. Semaphore_create():
+- Create binary semaphores which are used to signal if DPM_start/DPM_stop/DPM_ioctl is done
+  to the sensor management task. The signalling (Semaphore_post) will be done
+  from the DPM registered report function (which will execute in the DPM execute task context).
+
+*** Initialization of the high level mmWave module: ***
+11. MMWave_InitCfg initCfg
+-  Initialize the mmWave init configuration struct. (Includes event callback: MmwDemo_eventCallbackFxn())
+12. MMWave_init():
+- Initialize and setup the mmWave Control module 
+13. MMWave_sync():
+- Synchronize the execution of the control module between the domains
+
+*** Launch the mmWave control execution task (This task should have a higher priority than any other task which uses the mmWave control API) ***
+14. Task_create(MmwDemo_mmWaveCtrlTask, &taskParams, NULL):
+- Mmwave control functions.
+
+*** Initialization of the DPM Module ***
+15. DPM_init():
+- Initialize the mmWave Data Path Manager (DPM_InitCfg dpmInitCfg: Includes report callback MmwDemo_DPC_ObjectDetection_reportFxn())
+16. DPM_synch(): 
+- Synchronize the execution of the datapath module between the domains.
+- Wait for the synchronisation by calling DPM_synch() in a loop until it returns 1 on success or < 0 when sync fails.
+17. Task_create(mmwDemo_mssDPMTask, &taskParams, NULL):
+- Create a task for the DPM functionality.
+18. MmwDemo_calibInit(): (Calibration save/restore initialization) => TO DO: WHAT IS CALIBRATED ? THE RADAR SYSTEM SUBSYTEM?
+- rlDeviceGetVersion()
+- mmwDemo_flashInit() (Init and config QSPI and QSPI flash, Open QSPI and QSPI flash mmWave sdk components: mmwdemo_flash.c)
+
+*** Initialize the Profiler ***
+19. Cycleprofiler_init() => TO DO: What is its purpose ?
+
+*** Initialize the CLI Module ***
+20. MmwDemo_CLIInit(MMWDEMO_CLI_TASK_PRIORITY) (mmw_cli.c)
+- Configure the CLI. 
+- This includes basic configuration information like certain handles, cli task priority, ... as well as the CLI command strings.
+- For each command, a seperate callback function will be registered.
+- CLI_open()
+*************************************************************** void MmwDemo_initTask() ********************************************************
+
+************************************************************ void MmwDemo_mmWaveCtrlTask() *****************************************************
+1. MMWave_execute():
+- Execute the mmWave control module.
+- The task is used to provide an execution context for the mmWave control task.
+- Called in a while loop until an error returns (return value < 0) => TO DO: WHY DOES IT NEED TO BE CALLED IN A WHILE LOOP ?
+************************************************************ void MmwDemo_mmWaveCtrlTask() *****************************************************
+
+************************************************************** void mmwDemo_mssDPMTask() *******************************************************
+1. DPM_execute()
+- DPM Execution Task which executes the DPM Instance which manages the HL Profiles executing on the MSS.
+- Called in a while loop until an error returns (return value < 0) => TO DO: WHY DOES IT NEED TO BE CALLED IN A WHILE LOOP ?
+************************************************************** void mmwDemo_mssDPMTask() *******************************************************
+
+***************************************************************** Callback functions ***********************************************************
+- MmwDemo_EDMA_errorCallbackFxn()
+- MmwDemo_EDMA_transferControllerErrorCallbackFxn()
+- MmwDemo_eventCallbackFxn()
+- MmwDemo_DPC_ObjectDetection_reportFxn()
+
+TO DO: THIS LIST IS NOT COMPLETE
+
+***************************************************************** Callback functions ***********************************************************
+mss_main.c: (Master Sub System) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+BASIC INITIALIZATION SEEMS TO STOP AFTER MmwDemo_initTask(). FURTHER FUNCTIONALITY SEEMS TO BE CONTROLLED BY THE CLI COMMANDS  ???
+
+
+
+5.) mma_cli.c: (Command Line Interface) ////////////////////////////////////////////////////////////////////////////////////////////////////////
+*********************************************************************** global *****************************************************************
+extern MmwDemo_MSS_MCB gMmwMssMCB: (Global variable defined in main_mss.c)
+- Global variable to hold the configuration state of the demo application: (mmw_mss.h: MmwDemo_MSS_MCB)
+- Holds various handle types including TI RTOS handle types, error info, sensor state, temp stats, lvds stream, CQ monitor configuration, ... 
+*********************************************************************** global *****************************************************************
+
+********************************************************** CLI Commands & Callback functions ***************************************************
+ 1. int32_t MmwDemo_CLISensorStart()
+- cmd:  sensorStart 
+- args: [doReconfig(optional, default:enabled)]
+ 2. int32_t MmwDemo_CLISensorStop()
+- cmd:  sensorStop
+- args: No arguments
+ 3. int32_t MmwDemo_CLIGuiMonSel()
+- cmd:  guiMonitor
+- args: <subFrameIdx> <detectedObjects> <logMagRange> <noiseProfile> <rangeAzimuthHeatMap> <rangeDopplerHeatMap> <statsInfo>
+ 4. int32_t MmwDemo_CLICfarCfg()
+- cmd:  cfarCfg
+- args: <subFrameIdx> <procDirection> <averageMode> <winLen> <guardLen> <noiseDiv> <cyclicMode> <thresholdScale> <peakGroupingEn>
+ 5. int32_t MmwDemo_CLIMultiObjBeamForming()
+- cmd:  multiObjBeamForming
+- args: <subFrameIdx> <enabled> <threshold>
+ 6. int32_t MmwDemo_CLICalibDcRangeSig()
+- cmd:  calibDcRangeSig
+- args: <subFrameIdx> <enabled> <negativeBinIdx> <positiveBinIdx> <numAvgFrames>
+ 7. int32_t MmwDemo_CLIClutterRemoval()
+- cmd:  clutterRemoval
+- args: <subFrameIdx> <enabled>
+ 8. int32_t MmwDemo_CLIADCBufCfg()
+- cmd:  adcbufCfg
+- args: <subFrameIdx> <adcOutputFmt> <SampleSwap> <ChanInterleave> <ChirpThreshold>
+ 9. int32_t MmwDemo_CLICompRangeBiasAndRxChanPhaseCfg()
+- cmd:  compRangeBiasAndRxChanPhase
+- args: <rangeBias> <Re00> <Im00> <Re01> <Im01> <Re02> <Im02> <Re03> <Im03> <Re10> <Im10> <Re11> <Im11> <Re12> <Im12> <Re13> <Im13>
+10. int32_t MmwDemo_CLIMeasureRangeBiasAndRxChanPhaseCfg()
+- cmd:  measureRangeBiasAndRxChanPhase
+- args: <enabled> <targetDistance> <searchWin>
+11. int32_t MmwDemo_CLIAoAFovCfg()
+- cmd:  aoaFovCfg
+- args: <subFrameIdx> <minAzimuthDeg> <maxAzimuthDeg> <minElevationDeg> <maxElevationDeg>
+12. int32_t MmwDemo_CLICfarFovCfg()
+- cmd:  cfarFovCfg
+- args: <subFrameIdx> <procDirection> <min (meters or m/s)> <max (meters or m/s)>
+13. int32_t MmwDemo_CLIExtendedMaxVelocity()
+- cmd:  extendedMaxVelocity
+- args: <subFrameIdx> <enabled>
+14. int32_t MmwDemo_CLIBpmCfg()
+- cmd:  bpmCfg
+- args: <subFrameIdx> <enabled> <chirp0Idx> <chirp1Idx>
+15. int32_t MmwDemo_CLIChirpQualityRxSatMonCfg()
+- cmd:  CQRxSatMonitor
+- args: <profile> <satMonSel> <priSliceDuration> <numSlices> <rxChanMask>
+16. int32_t MmwDemo_CLIChirpQualitySigImgMonCfg()
+- cmd:  CQSigImgMonitor
+- args: <profile> <numSlices> <numSamplePerSlice>
+17. int32_t MmwDemo_CLIAnalogMonitorCfg()
+- cmd:  analogMonitor
+- args: <rxSaturation> <sigImgBand>
+18. int32_t MmwDemo_CLILvdsStreamCfg()
+- cmd:  lvdsStreamCfg
+- args: <subFrameIdx> <enableHeader> <dataFmt> <enableSW>
+19. int32_t MmwDemo_CLIConfigDataPort()
+- cmd:  configDataPort
+- args: <baudrate> <ackPing>
+20. int32_t MmwDemo_CLIQueryDemoStatus()
+- cmd:  queryDemoStatus
+- args: No arguments
+21. int32_t MmwDemo_CLICalibDataSaveRestore()
+- cmd:  calibData
+- args: <save enable> <restore enable> <Flash offset>
+********************************************************** CLI Commands & Callback functions ***************************************************
+
+TO DO: Complete callback function info
+MmwDemo_CLISensorStart():
+MMWave_open() (mmwave.h) is called in MmwDemo_openSensor() (mms_main.c) which is called in MmwDemo_CLISensorStart() (mmw_cli.c) which is called as
+an event handler on receiving the "sensorStart" command.
+
+TO DO: Complete callback function info
+
+mma_cli.c: (Command Line Interface) ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< DSS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+
+6.) mmw_dss.h: (DSP SubSystem) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+************************************************************************ Debug *****************************************************************
+1. MACRO MmwDemo_debugAssert(expression):
+- Uses DebugP_assert() (Operating System Abstraction Layer (OSAL) DebugP.h)
+************************************************************************ Debug *****************************************************************
+
+TO DO: Complete info
+
+mmw_dss.h: (DSP SubSystem) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+7.) dss_main.c: (DSP SubSystem) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+*********************************************************************** global *****************************************************************
+MmwDemo_DSS_MCB    gMmwDssMCB: 
+- Global variable to hold the configuration state of the demo DSS application: 
+- Holds task handles and a data path object.
+*********************************************************************** global *****************************************************************
+
+********************************************************************** int main() **************************************************************
+1. SOC_SysClock_BYPASS_INIT:
+- System Clocks initialization is bypassed (Already done in the MSS)
+2. SOC_init():
+- Initialize the DSP SOC module.
+3. Task_create():
+- Create and start the MmwDemo_dssInitTask task.
+5.BIOS_start():
+- Start the TI RTOS scheduler.
+********************************************************************** int main() **************************************************************
+
+************************************************************* void MmwDemo_dssInitTask() *******************************************************
+System Initialization Task which initializes the various components in the system.
+
+1. Mailbox_init(MAILBOX_TYPE_DSS):
+- Init the Mailbox module. It must be called only once per local endpoint. (also for MSS)
+- Also needed to be able to call related API calls.
+2. MmwDemo_dataPathInit(): (data_path.c)
+- This function is called at the init time to initialze data path driver. (MmwDemo_edmaInit())
+3. MmwDemo_dataPathOpen(): (data_path.c)
+- This function is called at the init time to open data path driver instances. (MmwDemo_edmaOpen())
+4. DPM_init():
+- Initialize the Data Path Manager.
+5. DPM_synch():
+- Synchronize the Data Path Manager.
+- Needs to be called in a while loop until an error occurs (return value synchStatus < 0) or on success (return value synchStatus == 1).
+6. Task_create():
+- Create and start the MmwDemo_DPC_ObjectDetection_dpmTask task.
+************************************************************* void MmwDemo_dssInitTask() *******************************************************
+
+***************************************************** void MmwDemo_DPC_ObjectDetection_dpmTask() ***********************************************
+DPM Execution Task. DPM execute results are processed here:
+ *      a) Update states based on timestamp from DPC.
+ *      b) Copy results to shared memory to be shared with MSS.
+ *      c) Send Results to MSS by calling DPM_sendResult()
+
+1. DPM_execute():
+- Execute the DPM module in a eternal loop until the task is stopped or an error occured.
+- Get the time stamp before copy data to HSRAM. (Cycleprofiler_getTimeStamp())
+- Update processing stats and add it to buffer 1. (MmwDemo_updateObjectDetStats())
+- Copy result data to HSRAM. (MmwDemo_copyResultToHSRAM())
+- Update interframe margin with HSRAM copy time. (Cycleprofiler_getTimeStamp())
+- Update DPM buffer.
+- If results are available, send them. (DPM_sendResult())
+***************************************************** void MmwDemo_DPC_ObjectDetection_dpmTask() ***********************************************
+
+************************************************************* Callback functions ***************************************************************
+1. MmwDemo_DPC_ObjectDetection_reportFxn():
+- DPM Registered Report Handler. The DPM Module uses this registered function to notify
+  the application about DPM reports.
+2. MmwDemo_DPC_ObjectDetection_processFrameBeginCallBackFxn():
+- Call back function that was registered during config time and is going
+  to be called in DPC processing at the beginning of frame/sub-frame processing,
+  we use this to issue BIOS calls for computing CPU load during inter-frame
+3. MmwDemo_DPC_ObjectDetection_processInterFrameBeginCallBackFxn():
+- Call back function that was registered during config time and is going
+  to be called in DPC processing at the beginning of inter-frame/inter-sub-frame processing,
+  we use this to issue BIOS calls for computing CPU load during active frame (chirping)
+************************************************************* Callback functions ***************************************************************
+dss_main.c: (DSP SubSystem) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+8.) dpm.h: (Data Path Manager) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@mainpage Data Path Manager (DPM):
+The DPM Module provides a well defined IPC mechanism which allows
+application and data path processing chains (DPC) to communicate with
+each other. The applications and DPC could be located on the same subsystem
+or could be located on different subsystems. The DPM was designed
+for the following:
+1. Modularity
+     The framework provides a clear demarcation between the application
+     code and the data path processing chain.
+2. Simple Intuitive API
+     The framework exposes a set of standard well defined API which allows
+     application developers to load, configure and execute the processing
+     chain
+Data Path Processing Chain (DPC) can be defined as any execution block which
+receives input data, processes it and generates an output. Example:
+The Low Level processing chain can be defined as a a block which
+receives ADC data and generate a point cloud.
+Except the XWR14xx all the other supported platforms have the DSS and MSS
+subsystem. In most use cases the MSS is defined as a control domain while
+the DSS actually executes the DPC. The DPM module provides an ability to
+exchange configuration between the MSS and DSS via the IPC. Application and
+DPC developers are thus abstracted from this complexity.
+## Processing Chain Developers #
+The DPM can be used by developers to create their own processing chains
+in which case please refer to the processing chain exported API
+@sa DPM_PROCESSING_CHAIN_API
+## Reporting #
+Application using the framework need to register a report function which receives
+status reports from the framework module. This is an important feedback mechanism
+through which the framework can keep the application informed about the status of
+operations. For a list of all the reports @sa DPM_Report
+## Domains #
+The DPM module introduces a concept of domains which identifies the extent to
+which the Control and Data Path processing chains are distributed
+### Local Domains #
+In the local domain the control and DPC are executing on the same subsystem.
+@image html local_domain.png
+### Remote Domains #
+In the remote domain the control is executing on one subsystem while the DPC
+is executing on another subsystem
+@image html remote_domain.png
+### Distributed Domains #
+In the distributed domain the control is executing on one subsystem while the DPC
+is executing on both the subsystems
+@image html distributed_domain.png
+## Restrictions #
+The DPM framework is currently limited to a single remote/distributed domain.
+Multiple local domains can be instantiated without any issues.
+Due to memory consideration, DPM has IPC local queue set to @ref DPM_MAX_LOCAL_QUEUE. 
+In remote/distributed domain setup, messages delivered through report function to MSS/DSS is not serialized.
+Hence the order (MSS gets it first or DSS gets it first) cannot be guaranteed.
+
+TO DO: Complete info
+
+dpm.h: (Data Path Manager) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+9.) mmw_output.h: (Message types) //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+mmw\include:
+Message types used in the Millimeter Wave Demo for the communication between target and host, and for Mailbox communication
+between MSS and DSS on the XWR16xx platform. Message types are used to indicate different types of detection information sent out from the target.
+
+1. typedef enum MmwDemo_output_message_type_e MmwDemo_output_message_type:
+- MMWDEMO_OUTPUT_MSG_DETECTED_POINTS, MMWDEMO_OUTPUT_MSG_RANGE_PROFILE, MMWDEMO_OUTPUT_MSG_RANGE_DOPPLER_HEAT_MAP, ...
+2. typedef struct MmwDemo_output_message_header_t MmwDemo_output_message_header:
+- numDetectedObj, frameNumber, timeCpuCycles, ...
+3. typedef struct MmwDemo_output_message_stats_t MmwDemo_output_message_stats:
+- transmitOutputTime, interChirpProcessingMargin, activeFrameCPULoad, ...
+4. typedef struct MmwDemo_HSRAM_t MmwDemo_HSRAM:
+- DPC_ObjectDetection_ExecuteResult result, outStats, payload
+5. typedef struct MmwDemo_output_message_tl_t MmwDemo_output_message_tl:
+- type, length
+mmw_output.h: (Message types) //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+10.) objectdetection.h /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+objectdetection\objdetdsp:
+
+*********************************************************************** global *****************************************************************
+1. extern DPM_ProcChainCfg  gDPC_ObjectDetectionCfg: (Defined in objectdetection.c)
+- Application developers: Use this configuration to load the Object Detection DPC within the DPM.
+*********************************************************************** global *****************************************************************
+
+TO DO: Complete info
+
+objectdetection.h //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+11.) rl_sensor.h: (mmWave link) ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+mmwavelink\include:
+- A great amount of device configuration macro's, structs, function declarations.
+
+TO DO: Complete info
+
+rl_sensor.h: (mmWave link) /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+12.) cycle_profiler.h / CycleprofilerP.h ///////////////////////////////////////////////////////////////////////////////////////////////////////
+1. Cycleprofiler_init():
+- Function to initialize cycle profiler.
+2. CycleprofilerP_getTimeStamp():
+- Get CPU cycle count time stamp.
+cycle_profiler.h / CycleprofilerP.h ////////////////////////////////////////////////////////////////////////////////////////////////////////////

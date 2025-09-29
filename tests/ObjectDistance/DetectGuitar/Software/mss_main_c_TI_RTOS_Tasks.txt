@@ -1,0 +1,18 @@
+Out-Of-The-Box Demo Object Detection:
+
+TI_RTOS Tasks mss_main.c:
+
+1.)static void MmwDemo_initTask(UArg arg0, UArg arg1): line 3712
+System Initialization Task which initializes the various components in the system.
+
+2.) static void MmwDemo_mmWaveCtrlTask(UArg arg0, UArg arg1): line 1469
+This task is used to provide an execution context for the mmWave control task
+This should have a higher priroity than any other task which uses the mmWave control API
+
+3.) static void mmwDemo_mssDPMTask(UArg arg0, UArg arg1): line 2913
+DPM Execution Task which executes the DPM Instance which manages the HL Profiles executing on the MSS.
+
+4.) CLI Task => Found in mmw_cli.c line 1353
+void MmwDemo_CLIInit (uint8_t taskPriority)
+CLI task must be at a lower priority than object detection dpm task (mmwDemo_mssDPMTask) priority because the dynamic CLI command handling in the objection detection
+dpm task assumes CLI task is held back during this processing. The alternative is to use a semaphore between the two tasks.
